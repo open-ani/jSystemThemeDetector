@@ -1,3 +1,7 @@
+import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.SonatypeHost
+
 /*
  * Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,9 +18,10 @@
 
 plugins {
     id("java")
+    id("com.vanniktech.maven.publish") version "0.29.0"
 }
 
-group = "com.jthemedetector"
+group = "org.openani.jsystemthemedetector"
 version = "3.8"
 
 repositories {
@@ -60,4 +65,46 @@ dependencies {
     implementation("io.github.g00fy2:versioncompare:1.4.1")
 
     implementation("org.jetbrains:annotations:22.0.0")
+}
+
+mavenPublishing {
+    configure(JavaLibrary(JavadocJar.Empty(), true))
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
+
+    pom {
+        name = "jSystemThemeDetector"
+        description =
+            "(Fork of) Java library for detecting that the (desktop) operating system uses dark UI theme or not."
+        url = "https://github.com/open-ani/jSystemThemeDetector"
+
+        licenses {
+            license {
+                name = "Apache License, Version 2.0"
+                url = "https://www.apache.org/licenses/LICENSE-2.0"
+                distribution = "https://www.apache.org/licenses/LICENSE-2.0"
+            }
+        }
+
+        developers {
+            developer {
+                id = "Dansoftowner"
+                name = "Daniel Gyoerffy"
+                email = "Dansoftowner@users.noreply.github.io"
+            }
+            developer {
+                id = "openani"
+                name = "OpenAni"
+                organization = "OpenAni"
+                roles = listOf("publisher")
+                email = "support@openani.org"
+            }
+        }
+
+        scm {
+            connection = "scm:git:https://github.com/open-ani/jSystemThemeDetector.git"
+            developerConnection = "scm:git:git@github.com:open-ani/jSystemThemeDetector.git"
+            url = "https://github.com/open-ani/jSystemThemeDetector"
+        }
+    }
 }
