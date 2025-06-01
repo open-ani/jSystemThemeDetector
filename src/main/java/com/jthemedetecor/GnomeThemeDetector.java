@@ -49,6 +49,16 @@ class GnomeThemeDetector extends OsThemeDetector {
 
     private volatile DetectorThread detectorThread;
 
+    GnomeThemeDetector() {
+        // 添加JVM关闭钩子确保进程被清理
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (detectorThread != null) {
+                detectorThread.destroyProcess();
+                detectorThread.interrupt();
+            }
+        }));
+    }
+
     @Override
     public boolean isDark() {
         try {
@@ -91,8 +101,12 @@ class GnomeThemeDetector extends OsThemeDetector {
     @Override
     public synchronized void removeListener(@Nullable Consumer<Boolean> darkThemeListener) {
         listeners.remove(darkThemeListener);
-        if (listeners.isEmpty()) {
-            this.detectorThread.interrupt();
+        if (listeners.isEmpty() && detectorThread != null) {
+            // 先销毁进程，这会使I/O操作失败
+            detectorThread.destroyProcess();
+            // 然后再中断线程
+            detectorThread.interrupt();
+            System.out.println("1111");
             this.detectorThread = null;
         }
     }
@@ -105,6 +119,8 @@ class GnomeThemeDetector extends OsThemeDetector {
         private final GnomeThemeDetector detector;
         private final Pattern outputPattern = Pattern.compile("(gtk-theme|color-scheme).*", Pattern.CASE_INSENSITIVE);
         private boolean lastValue;
+        // 保存对进程的引用
+        private volatile Process monitoringProcess;
 
         DetectorThread(@NotNull GnomeThemeDetector detector) {
             this.detector = detector;
@@ -114,41 +130,67 @@ class GnomeThemeDetector extends OsThemeDetector {
             this.setPriority(Thread.NORM_PRIORITY - 1);
         }
 
+        /**
+         * 销毁监控进程
+         */
+        public void destroyProcess() {
+            Process process = monitoringProcess;
+            if (process != null && process.isAlive()) {
+                process.destroy();
+                logger.debug("Monitoring process destroyed by external call");
+            }
+        }
+
         @Override
         public void run() {
             try {
                 Runtime runtime = Runtime.getRuntime();
-                Process monitoringProcess = runtime.exec(MONITORING_CMD);
+                monitoringProcess = runtime.exec(MONITORING_CMD);
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(monitoringProcess.getInputStream()))) {
                     while (!this.isInterrupted()) {
-                        //Expected input = gtk-theme: '$GtkThemeName'
-                        String readLine = reader.readLine();
-                        
-                        // reader.readLine sometimes returns null on application shutdown.
-                        if (readLine == null) {
-                            continue;
-                        }
-                        
-                        if (!outputPattern.matcher(readLine).matches()) {
-                            continue;
-                        }
-                        String[] keyValue = readLine.split("\\s");
-                        String value = keyValue[1];
-                        boolean currentDetection = detector.isDarkTheme(value);
-                        logger.debug("Theme changed detection, dark: {}", currentDetection);
-                        if (currentDetection != lastValue) {
-                            lastValue = currentDetection;
-                            for (Consumer<Boolean> listener : detector.listeners) {
-                                try {
-                                    listener.accept(currentDetection);
-                                } catch (RuntimeException e) {
-                                    logger.error("Caught exception during listener notifying ", e);
+                        try {
+                            //Expected input = gtk-theme: '$GtkThemeName'
+                            String readLine = reader.readLine();
+
+                            // reader.readLine sometimes returns null on application shutdown.
+                            if (readLine == null) {
+                                // 如果读取返回null，可能是进程已经结束
+                                if (monitoringProcess.isAlive()) {
+                                    continue;
+                                } else {
+                                    // 进程已结束，退出循环
+                                    break;
                                 }
                             }
+
+                            if (!outputPattern.matcher(readLine).matches()) {
+                                continue;
+                            }
+                            String[] keyValue = readLine.split("\\s");
+                            String value = keyValue[1];
+                            boolean currentDetection = detector.isDarkTheme(value);
+                            logger.debug("Theme changed detection, dark: {}", currentDetection);
+                            if (currentDetection != lastValue) {
+                                lastValue = currentDetection;
+                                for (Consumer<Boolean> listener : detector.listeners) {
+                                    try {
+                                        listener.accept(currentDetection);
+                                    } catch (RuntimeException e) {
+                                        logger.error("Caught exception during listener notifying ", e);
+                                    }
+                                }
+                            }
+                        } catch (IOException e) {
+                            // 读取过程中出现IO异常，检查是否是因为中断
+                            if (this.isInterrupted() || monitoringProcess == null || !monitoringProcess.isAlive()) {
+                                break;
+                            }
+                            logger.error("Error reading from monitoring process: ", e);
                         }
                     }
                     logger.debug("ThemeDetectorThread has been interrupted!");
-                    if (monitoringProcess.isAlive()) {
+                    if (monitoringProcess != null && monitoringProcess.isAlive()) {
+                        System.out.println("2222");
                         monitoringProcess.destroy();
                         logger.debug("Monitoring process has been destroyed!");
                     }
