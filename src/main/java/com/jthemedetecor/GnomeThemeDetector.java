@@ -50,7 +50,6 @@ class GnomeThemeDetector extends OsThemeDetector {
     private volatile DetectorThread detectorThread;
 
     GnomeThemeDetector() {
-        // 添加JVM关闭钩子确保进程被清理
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             if (detectorThread != null) {
                 detectorThread.destroyProcess();
@@ -102,11 +101,8 @@ class GnomeThemeDetector extends OsThemeDetector {
     public synchronized void removeListener(@Nullable Consumer<Boolean> darkThemeListener) {
         listeners.remove(darkThemeListener);
         if (listeners.isEmpty() && detectorThread != null) {
-            // 先销毁进程，这会使I/O操作失败
             detectorThread.destroyProcess();
-            // 然后再中断线程
             detectorThread.interrupt();
-            System.out.println("1111");
             this.detectorThread = null;
         }
     }
@@ -119,7 +115,6 @@ class GnomeThemeDetector extends OsThemeDetector {
         private final GnomeThemeDetector detector;
         private final Pattern outputPattern = Pattern.compile("(gtk-theme|color-scheme).*", Pattern.CASE_INSENSITIVE);
         private boolean lastValue;
-        // 保存对进程的引用
         private volatile Process monitoringProcess;
 
         DetectorThread(@NotNull GnomeThemeDetector detector) {
@@ -130,9 +125,6 @@ class GnomeThemeDetector extends OsThemeDetector {
             this.setPriority(Thread.NORM_PRIORITY - 1);
         }
 
-        /**
-         * 销毁监控进程
-         */
         public void destroyProcess() {
             Process process = monitoringProcess;
             if (process != null && process.isAlive()) {
@@ -154,11 +146,9 @@ class GnomeThemeDetector extends OsThemeDetector {
 
                             // reader.readLine sometimes returns null on application shutdown.
                             if (readLine == null) {
-                                // 如果读取返回null，可能是进程已经结束
                                 if (monitoringProcess.isAlive()) {
                                     continue;
                                 } else {
-                                    // 进程已结束，退出循环
                                     break;
                                 }
                             }
@@ -181,7 +171,6 @@ class GnomeThemeDetector extends OsThemeDetector {
                                 }
                             }
                         } catch (IOException e) {
-                            // 读取过程中出现IO异常，检查是否是因为中断
                             if (this.isInterrupted() || monitoringProcess == null || !monitoringProcess.isAlive()) {
                                 break;
                             }
@@ -190,7 +179,6 @@ class GnomeThemeDetector extends OsThemeDetector {
                     }
                     logger.debug("ThemeDetectorThread has been interrupted!");
                     if (monitoringProcess != null && monitoringProcess.isAlive()) {
-                        System.out.println("2222");
                         monitoringProcess.destroy();
                         logger.debug("Monitoring process has been destroyed!");
                     }
